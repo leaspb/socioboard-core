@@ -11,6 +11,7 @@ using System.Configuration;
 using System.Net;
 using System.Text;
 using System.Web.Security;
+using System.Collections.Generic;
 
 namespace Socioboard.Controllers
 {
@@ -46,7 +47,7 @@ namespace Socioboard.Controllers
             return RedirectToAction("Index");
         }
         //[HttpPost]
-        public ActionResult AjaxLogin(string username, string password)
+        public async System.Threading.Tasks.Task<ActionResult> AjaxLogin(string username, string password)
         {
             Session.Clear();
             Session.RemoveAll();
@@ -57,10 +58,34 @@ namespace Socioboard.Controllers
             Api.User.User obj = new Api.User.User();
             string logindata = obj.Login(uname, pass);
             string str = logindata.Replace("\"", string.Empty).Trim();
-            if (str != "Not Exist")
+            if (str != "Not Exist" && !str.Equals("Email Not Exist"))
             {
                  objUser = (User)(new JavaScriptSerializer().Deserialize(logindata, typeof(User)));
                 FormsAuthentication.SetAuthCookie(objUser.UserName, false);
+                Socioboard.Helper.apiClientProvider ac = new Socioboard.Helper.apiClientProvider(System.Configuration.ConfigurationManager.AppSettings["ApiDomainName"] + "/token");
+                try
+                {
+                    Dictionary<string, string> re = await ac.GetTokenDictionary(username, password);
+                    Session["access_token"] = re["access_token"];
+                }
+                catch (Exception e)
+                {
+                    objUser = null;
+
+                    // Edited by Antima 
+
+                    HttpCookie myCookie = new HttpCookie("logininfo" + uname.Trim());
+                    myCookie.Expires = DateTime.Now.AddDays(-1);
+                    Response.Cookies.Add(myCookie);
+
+                    returnmsg = "Invalid Email or Password";
+                    return Content(returnmsg);
+                }
+            }
+            else if (str.Equals("Email Not Exist")) 
+            {
+                returnmsg = "Sorry, Socioboard doesn't recognize that username.";
+                return Content(returnmsg);
             }
             else
             {
@@ -147,21 +172,25 @@ namespace Socioboard.Controllers
             return Content(returnmsg);
         }
 
+        
         public ActionResult Download()
         {
             return View();
         }
 
+       
         public ActionResult Contact()
         {
             return View();
         }
 
+       
         public ActionResult About()
         {
             return View();
         }
 
+        
         public ActionResult Pricing()
         {
             PricingModelHelper objPricingModelHelper_Basic = new PricingModelHelper("Basic", "FREE", "Every plan is a unique package. This one fits for individuals.", "Comprehensive Dashboard", null);
@@ -199,7 +228,7 @@ namespace Socioboard.Controllers
             return View("_PricingPartial", new PricingModelHelper[] { objPricingModelHelper_Basic, objPricingModelHelper_Standard, objPricingModelHelper_Premium, objPricingModelHelper_Deluxe, objPricingModelHelper_SocioBasic, objPricingModelHelper_SocioStandard, objPricingModelHelper_SocioPremium, objPricingModelHelper_SocioDeluxe });
             
         }
-       
+        
         public ActionResult Registration()
         {
             return View();
@@ -282,6 +311,24 @@ namespace Socioboard.Controllers
                         Api.User.User obj = new Api.User.User();
                         user = (User)(new JavaScriptSerializer().Deserialize(obj.Login(user.EmailId, user.Password), typeof(User)));
                         Session["User"] = user;
+                        if (Session["fblogin"] != null)
+                        {
+                            string accesstoken = (string)Session["AccesstokenFblogin"];
+                            Api.Facebook.Facebook objfacebook = new Api.Facebook.Facebook();
+                            Api.Groups.Groups objgroup = new Api.Groups.Groups();
+                            //Domain.Socioboard.Domain.Groups group = (Domain.Socioboard.Domain.Groups)(new JavaScriptSerializer().Deserialize(objgroup.GetGroupDetailsByUserId(user.Id.ToString()), typeof(Domain.Socioboard.Domain.Groups)));
+                            Groups obpgrp = (Groups)(new JavaScriptSerializer().Deserialize(objgroup.GetGroupDeUserId(user.Id.ToString()), typeof(Groups)));
+                            objfacebook.AddFacebookAccountWithloginAsync(accesstoken, user.Id.ToString(), obpgrp.Id.ToString());
+                        }
+                        if (Session["googlepluslogin"] != null)
+                        {
+                            string accesstoken = (string)Session["AccesstokenFblogin"];
+                            Api.Youtube.Youtube objYoutube = new Api.Youtube.Youtube();
+                            Api.Groups.Groups objgroup = new Api.Groups.Groups();
+                            //Domain.Socioboard.Domain.Groups group = (Domain.Socioboard.Domain.Groups)(new JavaScriptSerializer().Deserialize(objgroup.GetGroupDetailsByUserId(user.Id.ToString()), typeof(Domain.Socioboard.Domain.Groups)));
+                            Groups grp = (Groups)(new JavaScriptSerializer().Deserialize(objgroup.GetGroupDeUserId(user.Id.ToString()), typeof(Groups)));
+                            objYoutube.AddYoutubeAccountwithLoginAsync(ConfigurationManager.AppSettings["YtconsumerKey"], ConfigurationManager.AppSettings["YtconsumerSecret"], ConfigurationManager.AppSettings["Ytredirect_uri"], user.Id.ToString(), grp.Id.ToString(), accesstoken);
+                        }
                         retmsg = "user";
                     }
 
@@ -334,7 +381,7 @@ namespace Socioboard.Controllers
         public ActionResult LoadRegistration(string teamid)
         {
             string ss = Request.QueryString["teamid"];
-            User objUser = (User)Session["User"];
+            Domain.Socioboard.Domain.User objUser = (Domain.Socioboard.Domain.User)Session["User"];
             if (!String.IsNullOrEmpty(teamid))
             {
                 objUser = new Domain.Socioboard.Domain.User();
